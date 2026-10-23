@@ -3,11 +3,13 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::Result;
+use crate::{Result, bssl};
 
 pub(crate) struct Verifier {
-    handle: NonNull<c_void>,
+    provider: Provider,
     pub(crate) name: String,
+    /// Parameter set whose corpus this verifier reads; shared across providers.
+    pub(crate) corpus_name: String,
     pub(crate) public_key_len: usize,
     secret_key_len: usize,
     pub(crate) signature_max: usize,
@@ -15,6 +17,12 @@ pub(crate) struct Verifier {
     pub(crate) version: String,
     pub(crate) backend: String,
     pub(crate) hash_backend: String,
+}
+
+#[derive(Clone, Copy)]
+enum Provider {
+    Oqs(NonNull<c_void>),
+    BoringSsl,
 }
 
 pub(crate) struct SecretKey(Vec<u8>);
@@ -59,11 +67,11 @@ pub(crate) fn dist_build() -> bool {
     unsafe { pq_dist_build() != 0 }
 }
 
-/// Generic-C signature backends that a dispatching build selects only when CPU
-/// feature detection fails or the CPU lacks the required extensions.
-/// slhdsa-c is excluded: this pin has no other SLH-DSA backend.
-pub(crate) fn is_fallback_backend(backend: &str) -> bool {
-    matches!(backend, "mldsa-native/C" | "PQClean/clean")
+/// Backends that a dispatching build selects only when CPU feature detection
+/// fails or the CPU lacks the required extensions. slhdsa-c is excluded: this
+/// liboqs pin has no other SLH-DSA backend.
+pub(crate) fn is_fallback(backend: &str, hash_backend: &str) -> bool {
+    matches!(backend, "mldsa-native/C" | "PQClean/clean") || hash_backend == "boringssl-sha256/nohw"
 }
 
 pub(crate) fn init() -> String {
@@ -83,6 +91,23 @@ pub(crate) fn random_message(len: usize) -> Vec<u8> {
 
 impl Verifier {
     pub(crate) fn new(name: &str) -> Result<Self> {
+        if let Some(parameter_set) = name.strip_suffix(bssl::SUFFIX) {
+            if parameter_set != bssl::PARAMETER_SET {
+                return Err(format!("algorithm unavailable: {name}").into());
+            }
+            return Ok(Self {
+                provider: Provider::BoringSsl,
+                name: name.to_owned(),
+                corpus_name: parameter_set.to_owned(),
+                public_key_len: bssl::PUBLIC_KEY_LEN,
+                secret_key_len: bssl::SECRET_KEY_LEN,
+                signature_max: bssl::SIGNATURE_LEN,
+                category: 1,
+                version: concat!("boringssl ", env!("PQ_BSSL_REVISION")).to_owned(),
+                backend: "boringssl/slhdsa".to_owned(),
+                hash_backend: bssl::sha256_backend(),
+            });
+        }
         let c_name = CString::new(name)?;
         // SAFETY: name is NUL-terminated; null signals an unavailable algorithm.
         let handle = NonNull::new(unsafe { OQS_SIG_new(c_name.as_ptr()) })
@@ -90,8 +115,9 @@ impl Verifier {
         // SAFETY: all accessors receive the live OQS_SIG allocated above.
         unsafe {
             Ok(Self {
-                handle,
+                provider: Provider::Oqs(handle),
                 name: name.to_owned(),
+                corpus_name: name.to_owned(),
                 public_key_len: pq_public_key_len(handle.as_ptr()),
                 secret_key_len: pq_secret_key_len(handle.as_ptr()),
                 signature_max: pq_signature_len(handle.as_ptr()),
@@ -112,11 +138,16 @@ impl Verifier {
     pub(crate) fn keypair(&self) -> Result<(Vec<u8>, SecretKey)> {
         let mut pk = vec![0; self.public_key_len];
         let mut sk = SecretKey(vec![0; self.secret_key_len]);
-        // SAFETY: both output buffers have the lengths advertised by this OQS_SIG.
-        let status =
-            unsafe { OQS_SIG_keypair(self.handle.as_ptr(), pk.as_mut_ptr(), sk.0.as_mut_ptr()) };
-        if status != 0 {
-            return Err(format!("{} key generation failed: {status}", self.name).into());
+        match self.provider {
+            Provider::Oqs(handle) => {
+                // SAFETY: both output buffers have the lengths advertised by this OQS_SIG.
+                let status =
+                    unsafe { OQS_SIG_keypair(handle.as_ptr(), pk.as_mut_ptr(), sk.0.as_mut_ptr()) };
+                if status != 0 {
+                    return Err(format!("{} key generation failed: {status}", self.name).into());
+                }
+            }
+            Provider::BoringSsl => bssl::keypair(&mut pk, &mut sk.0),
         }
         Ok((pk, sk))
     }
@@ -126,46 +157,67 @@ impl Verifier {
             return Err("wrong secret key length".into());
         }
         let mut signature = vec![0; self.signature_max];
-        let mut len = signature.len();
-        // SAFETY: inputs are readable for their lengths, output has maximum signature capacity.
-        let status = unsafe {
-            OQS_SIG_sign(
-                self.handle.as_ptr(),
-                signature.as_mut_ptr(),
-                &mut len,
-                message.as_ptr(),
-                message.len(),
-                sk.0.as_ptr(),
-            )
+        let len = match self.provider {
+            Provider::Oqs(handle) => {
+                let mut len = signature.len();
+                // SAFETY: inputs are readable for their lengths, output has maximum signature capacity.
+                let status = unsafe {
+                    OQS_SIG_sign(
+                        handle.as_ptr(),
+                        signature.as_mut_ptr(),
+                        &mut len,
+                        message.as_ptr(),
+                        message.len(),
+                        sk.0.as_ptr(),
+                    )
+                };
+                if status != 0 {
+                    return Err(format!("{} signing failed: {status}", self.name).into());
+                }
+                len
+            }
+            Provider::BoringSsl => {
+                if !bssl::sign(&sk.0, message, &mut signature) {
+                    return Err(format!("{} signing failed", self.name).into());
+                }
+                signature.len()
+            }
         };
-        if status != 0 || len == 0 || len > signature.len() {
-            return Err(format!("{} signing failed: {status}, length={len}", self.name).into());
+        if len == 0 || len > signature.len() {
+            return Err(format!("{} signing failed: length={len}", self.name).into());
         }
         signature.truncate(len);
         Ok(signature)
     }
 
     pub(crate) fn verify(&self, pk: &[u8], message: &[u8], signature: &[u8]) -> bool {
-        // OQS_SIG_verify has no public-key length argument; never pass a short key.
+        // Neither API takes a public-key length; never pass a short key.
         assert_eq!(pk.len(), self.public_key_len);
-        // SAFETY: pk has exactly the required size; message/signature have explicit lengths.
-        unsafe {
-            OQS_SIG_verify(
-                self.handle.as_ptr(),
-                message.as_ptr(),
-                message.len(),
-                signature.as_ptr(),
-                signature.len(),
-                pk.as_ptr(),
-            ) == 0
+        match self.provider {
+            Provider::Oqs(handle) => {
+                // SAFETY: pk has exactly the required size; message/signature have explicit lengths.
+                unsafe {
+                    OQS_SIG_verify(
+                        handle.as_ptr(),
+                        message.as_ptr(),
+                        message.len(),
+                        signature.as_ptr(),
+                        signature.len(),
+                        pk.as_ptr(),
+                    ) == 0
+                }
+            }
+            Provider::BoringSsl => bssl::verify(pk, message, signature),
         }
     }
 }
 
 impl Drop for Verifier {
     fn drop(&mut self) {
-        // SAFETY: this object uniquely owns the handle and releases it exactly once.
-        unsafe { OQS_SIG_free(self.handle.as_ptr()) };
+        if let Provider::Oqs(handle) = self.provider {
+            // SAFETY: this object uniquely owns the handle and releases it exactly once.
+            unsafe { OQS_SIG_free(handle.as_ptr()) };
+        }
     }
 }
 
@@ -181,18 +233,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_generic_lattice_backends_count_as_fallback() {
-        for backend in ["mldsa-native/C", "PQClean/clean"] {
-            assert!(is_fallback_backend(backend));
-        }
-        for backend in [
-            "mldsa-native/x86_64",
-            "mldsa-native/aarch64",
-            "PQClean/avx2",
-            "PQClean/aarch64",
-            "slhdsa-c/portable",
+    fn only_generic_backends_count_as_fallback() {
+        for (backend, hash) in [
+            ("mldsa-native/C", "xkcp/plain64"),
+            ("PQClean/clean", "xkcp/avx2"),
+            ("boringssl/slhdsa", "boringssl-sha256/nohw"),
         ] {
-            assert!(!is_fallback_backend(backend));
+            assert!(is_fallback(backend, hash), "{backend} {hash}");
+        }
+        for (backend, hash) in [
+            ("mldsa-native/x86_64", "xkcp/avx2"),
+            ("mldsa-native/aarch64", "xkcp/plain64"),
+            ("PQClean/avx2", "xkcp/avx2"),
+            ("PQClean/aarch64", "xkcp/plain64"),
+            ("slhdsa-c/portable", "slhdsa-c/internal"),
+            ("boringssl/slhdsa", "boringssl-sha256/hw"),
+            ("boringssl/slhdsa", "boringssl-sha256/avx"),
+            ("boringssl/slhdsa", "boringssl-sha256/c"),
+        ] {
+            assert!(!is_fallback(backend, hash), "{backend} {hash}");
         }
     }
 }

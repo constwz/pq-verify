@@ -18,6 +18,7 @@ def read_rows(path):
 
 
 CASES = 8
+ALGORITHMS = 18
 FALLBACK_BACKENDS = {"mldsa-native/C", "PQClean/clean"}
 
 
@@ -55,7 +56,7 @@ def main():
         assert first.returncode == 0, first.stderr
         assert (root / "first/COMPLETE").exists()
         rows = read_rows(root / "first/rounds.csv")
-        assert len(rows) == 17 * CASES * 2
+        assert len(rows) == ALGORITHMS * CASES * 2
         assert {"corrupt-head", "corrupt-mid", "corrupt-tail"} <= {r["case"] for r in rows}
         observations = collections.defaultdict(list)
         for row in read_rows(root / "first/latency.csv"):
@@ -74,14 +75,17 @@ def main():
             assert elapsed >= 1_000_000
             rate = int(row["throughput_calls"]) * 1e9 / elapsed
             assert math.isclose(rate, float(row["verify_per_second"]), abs_tol=0.001)
-            corpus = root / "corpus" / f'{row["algorithm"]}-k2-n1-m32.bin'
+            parameter_set = row["algorithm"].split("@")[0]
+            corpus = root / "corpus" / f"{parameter_set}-k2-n1-m32.bin"
             hashes[row["algorithm"]] = hashlib.sha256(corpus.read_bytes()).hexdigest()
             assert row["corpus_sha256"] == hashes[row["algorithm"]] == listed[corpus.name]
             assert row["backend"] and row["hash_backend"]
+        assert hashes["SLH_DSA_PURE_SHA2_128S@boringssl"] == hashes["SLH_DSA_PURE_SHA2_128S"]
 
         metadata = (root / "first/metadata.txt").read_text()
         fell_back = "dist_build=true" in metadata and any(
-            row["backend"] in FALLBACK_BACKENDS for row in rows
+            row["backend"] in FALLBACK_BACKENDS or row["hash_backend"] == "boringssl-sha256/nohw"
+            for row in rows
         )
         budget = ("--latency-max-ms", "1")
         if fell_back:
@@ -105,7 +109,7 @@ def main():
         assert run(binary, root, "damaged", "valid", 1, "--allow-fallback").returncode != 0
         assert not (root / "damaged/COMPLETE").exists()
     gate = "rejected without --allow-fallback" if fell_back else "native dispatch"
-    print(f"PASS: 17 algorithms × {CASES} cases × 2 rounds; corpus preparation, raw "
+    print(f"PASS: {ALGORITHMS} algorithms × {CASES} cases × 2 rounds; corpus preparation, raw "
           f"statistics, corpus replay, latency budget and failure handling ({gate})")
 
 

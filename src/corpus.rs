@@ -87,7 +87,7 @@ impl Corpus {
             Self::decode(&bytes, verifier, keys, messages, message_bytes)?
         } else {
             let corpus = Self::generate(verifier, keys, messages, message_bytes)?;
-            let bytes = corpus.encode(&verifier.name, message_bytes)?;
+            let bytes = corpus.encode(&verifier.corpus_name, message_bytes)?;
             // A failed write remains visibly invalid on the next run, never silently regenerated.
             let mut output = OpenOptions::new().write(true).create_new(true).open(path)?;
             output.write_all(&bytes)?;
@@ -208,7 +208,7 @@ impl Corpus {
         if &magic != b"PQVB0001" {
             return Err("invalid corpus format".into());
         }
-        if read_bytes(&mut reader, 128)? != verifier.name.as_bytes() {
+        if read_bytes(&mut reader, 128)? != verifier.corpus_name.as_bytes() {
             return Err("corpus algorithm mismatch".into());
         }
         for expected in [keys, messages, message_bytes] {
@@ -285,10 +285,10 @@ mod tests {
             let single = Corpus::generate(&verifier, 1, 1, 32)?;
             single.validate(&verifier)?;
             assert_eq!(single.inputs(Case::WrongKey)[0].pk, single.wrong_key.as_slice());
-            let bytes = corpus.encode(&name, 32)?;
+            let bytes = corpus.encode(&verifier.corpus_name, 32)?;
             let restored = Corpus::decode(&bytes, &verifier, 2, 2, 32)?;
             restored.validate(&verifier)?;
-            assert_eq!(bytes, restored.encode(&name, 32)?);
+            assert_eq!(bytes, restored.encode(&verifier.corpus_name, 32)?);
             assert!(Corpus::decode(&bytes, &verifier, 1, 1, 32).is_err());
             assert!(Corpus::decode(&bytes[..bytes.len() - 1], &verifier, 2, 2, 32).is_err());
             let mut damaged = bytes.clone();
@@ -298,6 +298,25 @@ mod tests {
             oversized[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
             assert!(Corpus::decode(&oversized, &verifier, 2, 2, 32).is_err());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn boringssl_and_liboqs_verify_each_others_corpora() -> Result<()> {
+        oqs::init();
+        let liboqs = Verifier::new(crate::bssl::PARAMETER_SET)?;
+        let boringssl =
+            Verifier::new(&format!("{}{}", crate::bssl::PARAMETER_SET, crate::bssl::SUFFIX))?;
+        assert_eq!(boringssl.corpus_name, liboqs.name);
+        assert_eq!(boringssl.public_key_len, liboqs.public_key_len);
+        assert_eq!(boringssl.signature_max, liboqs.signature_max);
+        assert!(boringssl.hash_backend.starts_with("boringssl-sha256/"));
+        for (producer, consumer) in [(&liboqs, &boringssl), (&boringssl, &liboqs)] {
+            let bytes = Corpus::generate(producer, 2, 2, 32)?.encode(&producer.corpus_name, 32)?;
+            // validate() covers every negative case, so both libraries must also agree on rejection.
+            Corpus::decode(&bytes, consumer, 2, 2, 32)?.validate(consumer)?;
+        }
+        assert!(Verifier::new("SLH_DSA_PURE_SHAKE_256F@boringssl").is_err());
         Ok(())
     }
 
