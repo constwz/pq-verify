@@ -193,6 +193,26 @@ deliberately (e.g. a CPU without the extensions), pass `--allow-fallback`; rows
 then show the C backend and metadata records `dist_build=true`. Formal runs should
 have normal CPU-feature visibility.
 
+### Formal run script
+
+`run_formal.sh` runs the optimized build on valid inputs (10 rounds) and on two
+negative groups (5 rounds each, 10 s latency cap), then the portable build on valid
+inputs (10 rounds). All runs share the corpus pre-generated with `--prepare-only`
+under `corpus/` (or `PQ_CORPUS_DIR`), checked against `SHA256SUMS` first and copied
+as `corpus.SHA256SUMS`; quick mode uses a throwaway corpus under `OUTPUT_DIR/corpus`.
+`summarize.py` writes `summary.csv`. `host.txt` records the CPU model, features
+such as `avx2`/`sha_ni`, and the frequency governor. Extrapolating from an Apple
+M-series development machine, the whole run takes about 7 hours excluding first
+corpus generation; servers will differ.
+
+```bash
+bash build.sh optimized && bash build.sh portable
+PQ_CPU=2 nohup bash run_formal.sh results/formal-$(hostname)-$(date +%Y%m%d) > formal.log 2>&1 &
+```
+
+`PQ_CPU` applies on Linux only (`taskset`). `PQ_FORMAL_QUICK=1` substitutes
+seconds-long settings to check the pipeline, not to measure.
+
 ## Timing and reproducibility
 
 - Generate keys/messages/signatures using liboqs's default OS-backed randomness.

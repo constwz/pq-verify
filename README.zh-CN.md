@@ -193,6 +193,22 @@ SHAKE-256f 同样是纯 C Keccak，实测比 liboqs 慢约 15%，因此没有接
 结果中的 `backend` 会如实显示 C 实现，元数据记录 `dist_build=true`。
 正式测试应在 CPU 特性可以正常探测的环境中进行。
 
+### 正式测试脚本
+
+`run_formal.sh` 依次运行：优化构建的有效签名（10 轮）、两组负例（各 5 轮，延迟上限 10 秒），
+以及可移植构建的有效签名（10 轮）。所有运行共用 `corpus/`（或 `PQ_CORPUS_DIR`）下用 `--prepare-only`
+预生成的样本，开始前先按 `SHA256SUMS` 核对，并把清单复制为 `corpus.SHA256SUMS`；快速模式改用
+`OUTPUT_DIR/corpus` 下的临时小样本。最后用
+`summarize.py` 生成 `summary.csv`。`host.txt` 记录 CPU 型号、`avx2`/`sha_ni` 等特性和调频策略。
+按 Apple M 系列开发机估算，全程约 7 小时（不含首次生成样本），服务器上会有出入。
+
+```bash
+bash build.sh optimized && bash build.sh portable
+PQ_CPU=2 nohup bash run_formal.sh results/formal-$(hostname)-$(date +%Y%m%d) > formal.log 2>&1 &
+```
+
+`PQ_CPU` 只在 Linux 上生效（`taskset`）；`PQ_FORMAL_QUICK=1` 改用几秒钟的参数，只用于检查流程。
+
 ## 5. 计时口径与复现
 
 - 密钥、消息和签名使用 liboqs 默认的系统随机源生成。样本只保存公钥、消息和签名，
