@@ -1,0 +1,29 @@
+[package]
+name = "pq-verify-bench"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT OR Apache-2.0"
+description = "Standalone liboqs verification API benchmark for NewL1 account research"
+publish = false
+
+[workspace]
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unused_must_use = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+use_self = "warn"
+doc_markdown = "warn"
+
+[lints]
+workspace = true
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+

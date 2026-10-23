@@ -1,0 +1,2 @@
+doc-valid-idents = ["NewL1", ".."]
+msrv = "1.93"
