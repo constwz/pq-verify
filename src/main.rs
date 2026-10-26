@@ -1,6 +1,7 @@
 //! Measures complete liboqs verification APIs independently of NewL1 execution.
 //! Key generation, signing, corpus I/O and reporting are outside timed regions.
 
+mod bssl;
 mod corpus;
 mod measure;
 mod oqs;
@@ -48,7 +49,7 @@ struct Dataset {
 
 const HELP: &str = "pq-verify-bench: single-thread complete verification API benchmark
 
-  --algorithms tier1|all|NAME,NAME  default: tier1 (6 parameter sets)
+  --algorithms tier1|all|NAME,NAME  default: tier1 (7 entries)
   --cases valid|all|CASE,CASE       default: valid
       cases: valid,wrong-message,wrong-key,corrupt-head,corrupt-mid,
              corrupt-tail,truncated,extended
@@ -66,10 +67,12 @@ const HELP: &str = "pq-verify-bench: single-thread complete verification API ben
   --out PATH                       default: results/run-<timestamp>; must not exist
   --raw-latency                    also write individual latency samples
   --allow-fallback                 run even if a dispatching build selected generic
-                                   C for ML-DSA/Falcon (blocked CPU detection)
+                                   C for ML-DSA/Falcon or nohw SHA-256 for BoringSSL
+                                   (blocked CPU detection)
   --prepare-only                   generate/validate corpora, print sha256sum lines
                                    to stdout and exit; no timing, --out unused
-  --list                          list all 17 supported parameter sets
+  --list                          list all 18 entries (17 liboqs +
+                                  SLH_DSA_PURE_SHA2_128S@boringssl)
   --help                          show this message
 
 Run a Release build. Reuse saved corpora across machines/builds. No result cache.
@@ -86,6 +89,7 @@ fn all_algorithms() -> Vec<String> {
             }
         }
     }
+    names.push(format!("{}{}", bssl::PARAMETER_SET, bssl::SUFFIX));
     names
 }
 
@@ -242,7 +246,7 @@ fn record_command(output: &mut impl Write, program: &str, args: &[&str]) -> Resu
 fn load_corpus(opts: &Options, verifier: &Verifier) -> Result<(PathBuf, Corpus)> {
     let file = opts.corpus_dir.join(format!(
         "{}-k{}-n{}-m{}.bin",
-        verifier.name, opts.keys, opts.messages_per_key, opts.message_bytes
+        verifier.corpus_name, opts.keys, opts.messages_per_key, opts.message_bytes
     ));
     let verb = if file.exists() { "Validating" } else { "Generating" };
     eprintln!(
@@ -299,13 +303,13 @@ fn run(opts: &Options) -> Result<()> {
     // reports C-code timings under an "optimized" build name.
     if dist_build
         && !opts.allow_fallback
-        && let Some(v) = verifiers.iter().find(|v| oqs::is_fallback_backend(&v.backend))
+        && let Some(v) = verifiers.iter().find(|v| oqs::is_fallback(&v.backend, &v.hash_backend))
     {
         return Err(format!(
-            "{} dispatched to {} in a runtime-dispatch build: CPU feature detection \
+            "{} dispatched to {} / {} in a runtime-dispatch build: CPU feature detection \
              is blocked (e.g. sandboxed sysctl) or the CPU lacks the extensions. \
              Run where detection works, or pass --allow-fallback to record it anyway",
-            v.name, v.backend
+            v.name, v.backend, v.hash_backend
         )
         .into());
     }
@@ -484,8 +488,9 @@ mod tests {
 
     #[test]
     fn parameter_matrix_and_cli_reject_invalid_workloads() {
-        assert_eq!(all_algorithms().len(), 17);
-        assert_eq!(tier1().len(), 6);
+        assert_eq!(all_algorithms().len(), 18);
+        assert_eq!(tier1().len(), 7);
+        assert!(tier1().contains(&"SLH_DSA_PURE_SHA2_128S@boringssl".to_owned()));
         for args in [
             vec!["--keys", "0"],
             vec!["--message-bytes", "0"],
@@ -493,6 +498,7 @@ mod tests {
             vec!["--latency-samples", "0"],
             vec!["--latency-max-ms", "0"],
             vec!["--algorithms", "SPHINCS+"],
+            vec!["--algorithms", "SLH_DSA_PURE_SHAKE_256F@boringssl"],
             vec!["--cases", "valid,valid"],
             vec!["--cases", "corrupt-signature"],
             vec!["--rounds"],

@@ -405,7 +405,7 @@ python3 summarize.py --baseline ML-DSA-44 \
 
 Checks 命令块中同样追加 `python3 -m unittest test_summarize`。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add summarize.py test_summarize.py \
@@ -466,7 +466,7 @@ Expected: 17 行数据；`verify_per_second_cv` 普遍低于 0.05（开发机噪
   - `Verifier::new("SLH_DSA_PURE_SHA2_128S@boringssl")` 可用；`Verifier.corpus_name: String`（BoringSSL 为 `SLH_DSA_PURE_SHA2_128S`，liboqs 等于 `name`）
   - `$PQ_OQS_BUILD/boringssl.txt`：`source=`、`build=`、`no_asm=0|1`、`revision=` 四行，由 `build.sh` 写入、`build.rs` 读取
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `src/corpus.rs` 的 `mod tests` 中，把现有测试里两处 `corpus.encode(&name, 32)` / `restored.encode(&name, 32)` 改为 `corpus.encode(&verifier.corpus_name, 32)` / `restored.encode(&verifier.corpus_name, 32)`，并追加：
 
@@ -491,12 +491,12 @@ Expected: 17 行数据；`verify_per_second_cv` 普遍低于 0.05（开发机噪
     }
 ```
 
-- [ ] **Step 2: 运行，确认失败**
+- [x] **Step 2: 运行，确认失败**
 
 Run: `export PQ_OQS_BUILD="$PWD/target/oqs-optimized" && cargo test --release --offline corpus::tests`
 Expected: 编译失败，`no field corpus_name on type Verifier` 和 `could not find bssl in the crate root`
 
-- [ ] **Step 3: 替换 `build.sh`**
+- [x] **Step 3: 替换 `build.sh`**
 
 ```bash
 #!/usr/bin/env bash
@@ -595,7 +595,7 @@ cp "$root/target/release/pq-verify-bench" "$root/target/pq-verify-$mode"
 echo "Built $root/target/pq-verify-$mode" >&2
 ```
 
-- [ ] **Step 4: 新建 `bssl_bridge.cc`**
+- [x] **Step 4: 新建 `bssl_bridge.cc`**
 
 ```cpp
 // Reads BoringSSL's SHA-256 block dispatch through its pinned internal headers.
@@ -623,7 +623,7 @@ extern "C" const char *pq_bssl_sha256_backend(void) {
 }
 ```
 
-- [ ] **Step 5: 替换 `build.rs`**
+- [x] **Step 5: 替换 `build.rs`**
 
 ```rust
 //! Links separately built, pinned liboqs and BoringSSL without downloading during Cargo builds.
@@ -704,7 +704,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 6: 新建 `src/bssl.rs`**
+- [x] **Step 6: 新建 `src/bssl.rs`**
 
 ```rust
 //! BoringSSL SLH-DSA-SHA2-128s (FIPS 205 pure, empty context): a hardware-SHA-256
@@ -788,7 +788,7 @@ pub(crate) fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> boo
 }
 ```
 
-- [ ] **Step 7: 修改 `src/oqs.rs`**
+- [x] **Step 7: 修改 `src/oqs.rs`**
 
 1. `use crate::Result;` 改为 `use crate::{Result, bssl};`
 2. 结构体 `Verifier` 中把 `handle: NonNull<c_void>,` 替换为下面两行，并在 `name` 之后加 `corpus_name`：
@@ -957,7 +957,7 @@ impl Drop for Verifier {
 }
 ```
 
-- [ ] **Step 8: 修改 `src/corpus.rs` 与 `src/main.rs`**
+- [x] **Step 8: 修改 `src/corpus.rs` 与 `src/main.rs`**
 
 `src/corpus.rs`：
 - 第 90 行 `corpus.encode(&verifier.name, message_bytes)?` → `corpus.encode(&verifier.corpus_name, message_bytes)?`
@@ -976,7 +976,7 @@ impl Drop for Verifier {
 
 `--prepare-only` 因此对 `@boringssl` 打印的是共用的 `SLH_DSA_PURE_SHA2_128S-...bin`，与 liboqs 那一行相同；`sha256sum -c` 对重复行没有影响。
 
-- [ ] **Step 9: 构建并运行测试（普通环境）**
+- [x] **Step 9: 构建并运行测试（普通环境）**
 
 ```bash
 bash build.sh optimized
@@ -986,7 +986,7 @@ cargo test --release --offline
 
 Expected: 首次会拉取 BoringSSL（约 1–4 分钟）并编译（约 30 秒）；测试全部通过，包括 `boringssl_and_liboqs_verify_each_others_corpora`。
 
-- [ ] **Step 10: fmt / clippy / 冒烟**
+- [x] **Step 10: fmt / clippy / 冒烟**
 
 ```bash
 cargo fmt --all -- --check
@@ -996,7 +996,7 @@ python3 smoke_test.py ./target/pq-verify-optimized
 
 Expected: 全部通过。冒烟测试此时仍是 17 个参数集（BoringSSL 尚未加入 `--algorithms all`）。
 
-- [ ] **Step 11: 提交**
+- [x] **Step 11: 提交**
 
 ```bash
 git add build.sh build.rs bssl_bridge.cc \
@@ -1019,7 +1019,7 @@ git commit -m "bench: add BoringSSL SLH-DSA-SHA2-128s verifier provider" \
 - Consumes: Task 3 的 `bssl::PARAMETER_SET`、`bssl::SUFFIX`、`Verifier.hash_backend`。
 - Produces: `oqs::is_fallback(backend: &str, hash_backend: &str) -> bool`；`--algorithms all` 共 18 项，`tier1` 共 7 项（含 `SLH_DSA_PURE_SHA2_128S@boringssl`）。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 `src/oqs.rs` 的测试整体替换为：
 
@@ -1058,12 +1058,12 @@ git commit -m "bench: add BoringSSL SLH-DSA-SHA2-128s verifier provider" \
 
 并在非法参数列表中加一项 `vec!["--algorithms", "SLH_DSA_PURE_SHAKE_256F@boringssl"],`。
 
-- [ ] **Step 2: 运行，确认失败**
+- [x] **Step 2: 运行，确认失败**
 
 Run: `cargo test --release --offline`
 Expected: 编译失败 `cannot find function is_fallback`；修好编译后 `all_algorithms().len()` 断言失败（17 != 18）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `src/oqs.rs`：把 `is_fallback_backend` 整个替换为：
 
@@ -1103,7 +1103,7 @@ pub(crate) fn is_fallback(backend: &str, hash_backend: &str) -> bool {
 
 - `HELP` 中 `default: tier1 (6 parameter sets)` → `default: tier1 (7 entries)`；`--list ... list all 17 supported parameter sets` → `list all 18 entries (17 liboqs + SLH_DSA_PURE_SHA2_128S@boringssl)`；`--allow-fallback` 说明的 `C for ML-DSA/Falcon` → `C for ML-DSA/Falcon or nohw SHA-256 for BoringSSL`。
 
-- [ ] **Step 4: 更新冒烟测试 `smoke_test.py`**
+- [x] **Step 4: 更新冒烟测试 `smoke_test.py`**
 
 - `CASES = 8` 之后加 `ALGORITHMS = 18`；`assert len(rows) == 17 * CASES * 2` → `assert len(rows) == ALGORITHMS * CASES * 2`。
 - 样本路径改为按参数集取文件：
@@ -1130,7 +1130,7 @@ pub(crate) fn is_fallback(backend: &str, hash_backend: &str) -> bool {
 
 - 最后的 `print` 中 `17 algorithms` → `{ALGORITHMS} algorithms`。
 
-- [ ] **Step 5: 更新 README**
+- [x] **Step 5: 更新 README**
 
 `README.zh-CN.md`：
 - 开头第一段末尾加：“SLH-DSA-SHA2-128s 另用 BoringSSL（固定提交 `af41e135bc1714981fb8a791e9dda4fc6ff140c3`）测一份，作为使用硬件 SHA-256 的对照实现。”
@@ -1164,7 +1164,7 @@ SHAKE-256f also uses portable Keccak and measured about 15% slower than liboqs, 
 it is not included.
 ```
 
-- [ ] **Step 6: 构建并跑全部检查（普通环境）**
+- [x] **Step 6: 构建并跑全部检查（普通环境）**
 
 ```bash
 bash build.sh optimized && bash build.sh portable
@@ -1178,7 +1178,7 @@ python3 smoke_test.py ./target/pq-verify-optimized
 
 Expected: 全部通过；冒烟测试输出 `PASS: 18 algorithms × 8 cases × 2 rounds ... (native dispatch)`。
 
-- [ ] **Step 7: 确认可移植构建的标签**
+- [x] **Step 7: 确认可移植构建的标签**
 
 ```bash
 ./target/pq-verify-portable --algorithms SLH_DSA_PURE_SHA2_128S@boringssl --keys 2 --messages-per-key 1 \
@@ -1188,7 +1188,7 @@ cut -d, -f1-3 results/bssl-portable-check/rounds.csv && rm -rf results/bssl-port
 
 Expected: `SLH_DSA_PURE_SHA2_128S@boringssl,boringssl/slhdsa,boringssl-sha256/c`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add -A
@@ -1199,7 +1199,7 @@ git commit -m "bench: expose BoringSSL SLH-DSA in pq-verify CLI and docs"
 
 ### Task 5: 本地出一份上线成本对比（只运行，不改代码）
 
-- [ ] **Step 1: 优化构建跑全部参数集的有效签名（复用 Task 2 的样本）**
+- [x] **Step 1: 优化构建跑全部参数集的有效签名（复用 Task 2 的样本）**
 
 ```bash
 ./target/pq-verify-optimized \
@@ -1212,12 +1212,12 @@ git commit -m "bench: expose BoringSSL SLH-DSA in pq-verify CLI and docs"
 
 Expected: 约 40 分钟；`COMPLETE` 存在；`SLH_DSA_PURE_SHA2_128S@boringssl` 行 `hash_backend` 为 `boringssl-sha256/hw`。
 
-- [ ] **Step 2: 两份结果一起汇总**
+- [x] **Step 2: 两份结果一起汇总**
 
 Run: `python3 summarize.py --baseline ML-DSA-44 results/portable-valid-32 results/optimized-valid-32 > results/fairness-local.csv`
 Expected: 退出码 0（说明两次运行用的是同一份样本）。
 
-- [ ] **Step 3: 合理性检查**
+- [x] **Step 3: 合理性检查**
 
 Run: `grep -E '^optimized,SLH_DSA_PURE_SHA2_128S' results/fairness-local.csv | cut -d, -f1,2,4,10`（第 10 列是 `p50_median_ns`）
 Expected: `@boringssl` 行的 `p50_median_ns` 约为 liboqs 行的 1/6（spike 中约 81 µs 对 475 µs）；低于 3 倍时先检查 `hash_backend`。
@@ -1237,7 +1237,7 @@ Expected: `@boringssl` 行的 `p50_median_ns` 约为 liboqs 行的 1/6（spike �
 - Consumes: Task 0b 生成的 `corpus/SHA256SUMS`（或 `PQ_CORPUS_DIR`）；正式模式缺少清单或核对失败时，在创建 `OUTPUT_DIR` 之前退出。
 - Produces: `OUTPUT_DIR/{host.txt,corpus.SHA256SUMS,optimized-valid/,optimized-wrong-message+wrong-key/,optimized-corrupt-head+corrupt-mid+corrupt-tail+truncated+extended/,portable-valid/,summary.csv}`
 
-- [ ] **Step 1: 写脚本**
+- [x] **Step 1: 写脚本**
 
 ```bash
 #!/usr/bin/env bash
@@ -1308,7 +1308,7 @@ python3 "$root/summarize.py" --baseline ML-DSA-44 "$out"/optimized-* "$out"/port
 echo "Summary: $out/summary.csv" >&2
 ```
 
-- [ ] **Step 2: 在 macOS 上不设 `PQ_CPU` 跑快速模式（普通环境）**
+- [x] **Step 2: 在 macOS 上不设 `PQ_CPU` 跑快速模式（普通环境）**
 
 ```bash
 PQ_FORMAL_QUICK=1 bash run_formal.sh results/formal-quick
@@ -1317,7 +1317,7 @@ awk -F, 'NR > 1 { print $1 }' results/formal-quick/summary.csv | sort | uniq -c
 
 Expected: 没有 `unbound variable` 报错；输出 `144 optimized` 和 `18 portable`（18 项 × 8 场景，加 18 项 × 1 场景）。
 
-- [ ] **Step 3: 确认不会覆盖已有结果**
+- [x] **Step 3: 确认不会覆盖已有结果**
 
 Run: `PQ_FORMAL_QUICK=1 bash run_formal.sh results/formal-quick; echo "exit=$?"`
 Expected: `results/formal-quick already exists`，`exit=1`。然后 `rm -rf results/formal-quick`。
@@ -1325,7 +1325,7 @@ Expected: `results/formal-quick already exists`，`exit=1`。然后 `rm -rf resu
 Run: `PQ_CORPUS_DIR=$(mktemp -d) bash run_formal.sh results/formal-nocorpus; echo "exit=$?"; ls -d results/formal-nocorpus`
 Expected: `missing .../SHA256SUMS`，`exit=1`，`results/formal-nocorpus` 不存在。
 
-- [ ] **Step 4: 更新 README**
+- [x] **Step 4: 更新 README**
 
 `README.zh-CN.md` 第 4 节末尾追加：
 
@@ -1371,7 +1371,7 @@ PQ_CPU=2 nohup bash run_formal.sh results/formal-$(hostname)-$(date +%Y%m%d) > f
 seconds-long settings to check the pipeline, not to measure.
 ````
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 chmod +x run_formal.sh
@@ -1385,14 +1385,16 @@ git commit -m "bench: add formal pq-verify run script"
 
 Agent 不操作云主机，以下步骤由人在目标机器上执行。
 
-- [ ] **Step 1: 选机器并确认 CPU 特性**
+结果与偏差见 [`docs/results/2026-10-26-c7i-formal.md`](../results/2026-10-26-c7i-formal.md)。
+
+- [x] **Step 1: 选机器并确认 CPU 特性**
 
 选与验证节点同代、同型号的 x86 服务器。
 
 Run: `lscpu | grep -E 'Model name|Thread|Core|Socket'; grep -o -w -E 'avx2|avx512f|bmi2|sha_ni' /proc/cpuinfo | sort -u`
 Expected: 至少有 `avx2 bmi2`。没有 `sha_ni` 也能测，但 BoringSSL 会走 `avx`/`ssse3`，需要在报告中注明。
 
-- [ ] **Step 2: 准备环境**
+- [x] **Step 2: 准备环境**
 
 ```bash
 sudo cpupower frequency-set -g performance   # 或记录无法修改的原因
@@ -1411,7 +1413,7 @@ tar xzf pq-corpus-k64-n16-m32.tgz
 (cd corpus && sha256sum -c SHA256SUMS)
 ```
 
-- [ ] **Step 3: 安装依赖、构建并跑完整检查**
+- [x] **Step 3: 安装依赖、构建并跑完整检查**
 
 依赖：Rust 1.93、Git、CMake ≥ 3.24、GCC/G++ 或 Clang（C11 + C++17）、Python 3、`sha256sum`。
 
@@ -1425,20 +1427,20 @@ python3 smoke_test.py ./target/pq-verify-optimized
 
 Expected: 全部通过，冒烟测试显示 `(native dispatch)`。链接报 `undefined reference to operator delete` 之类错误时，检查是否装了 `libstdc++`。
 
-- [ ] **Step 4: 运行**
+- [x] **Step 4: 运行**
 
 ```bash
 PQ_CPU=<所选核> nohup bash run_formal.sh results/formal-$(hostname)-$(date +%Y%m%d) > formal.log 2>&1 &
 ```
 
-- [ ] **Step 5: 验收结果**
+- [x] **Step 5: 验收结果**
 
 - 4 个子目录都有 `COMPLETE`，`summary.csv` 已生成。
 - `backend`：ML-DSA 为 `mldsa-native/x86_64`，Falcon 为 `PQClean/avx2`；`@boringssl` 行 `hash_backend` 在有 SHA-NI 的机器上为 `boringssl-sha256/hw`。
 - 有效签名各行的 `verify_per_second_cv` 低于 0.02；超出时检查后台负载和调频，再重跑。
 - 对比 `SLH_DSA_PURE_SHA2_128S@boringssl` 与 `SLH_DSA_PURE_SHA2_128S`、ML-DSA-44、Falcon-512 的 `throughput_vs_baseline`。
 
-- [ ] **Step 6: 归档**
+- [x] **Step 6: 归档**
 
 ```bash
 tar czf formal-$(hostname)-$(date +%Y%m%d).tgz -C results formal-$(hostname)-$(date +%Y%m%d) formal.log

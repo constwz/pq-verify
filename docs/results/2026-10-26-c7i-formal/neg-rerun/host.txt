@@ -1,0 +1,11 @@
+2026-10-26T01:35:12Z
+Linux c7i-xlarge 6.18.54-121.166.amzn2023.x86_64 #2 SMP PREEMPT_DYNAMIC Tue Oct  6 23:11:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+model name	: Intel(R) Xeon(R) Platinum 8488C
+CPU NODE SOCKET CORE L1d:L1i:L2:L3 ONLINE
+  0    0      0    0 0:0:0:0          yes
+  1    -      -    - -                 no
+  2    0      0    0 0:0:0:0          yes
+  3    0      0    1 1:1:1:0          yes
+cpu3 /proc/stat at start: cpu3 2756369 1364 250097 21055911 9721 0 807 86 0 0
+2026-10-26T04:56:55Z
+cpu3 /proc/stat at end: cpu3 3965741 1364 250892 21055912 9721 0 866 88 0 0

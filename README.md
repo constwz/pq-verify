@@ -4,7 +4,9 @@ English | [简体中文](README.zh-CN.md)
 
 Independent Rust CLI over **liboqs 0.16.0**, pinned to
 `5a1a854b0dc9f2141bdc771c555ee60c37950183`. It measures the complete native
-verification API, including its internal decoding and hashing. It was written for
+verification API, including its internal decoding and hashing. SLH-DSA-SHA2-128s is
+also measured with BoringSSL (pinned to `af41e135bc1714981fb8a791e9dda4fc6ff140c3`)
+as a hardware-SHA-256 reference implementation. It was written for
 NewL1 account-verification research but depends on no NewL1 code; NewL1 transaction
 formats, execution and precompiles are out of scope.
 
@@ -16,9 +18,9 @@ ship liboqs as the account verifier.
 
 ## Build and smoke test
 
-Requires Rust 1.93+, Git, CMake 3.24+, a C compiler, `ar`, Make (or another CMake
+Requires Rust 1.93+, Git, CMake 3.24+, C11 and C++17 compilers, `ar`, Make (or another CMake
 generator), and `sha256sum` or `shasum`. Linux and macOS native builds are supported.
-The first build downloads the pinned liboqs source. No system-wide installation
+The first build downloads the pinned liboqs and BoringSSL sources. No system-wide installation
 is needed. From the repository root:
 
 ```bash
@@ -33,25 +35,27 @@ bash build.sh optimized
 
 These short settings check functionality, **not stable performance**. Output
 directories must not exist; this prevents accidentally overwriting a measurement.
-No arguments prints help. `--help` lists all options. Where CPU feature probes are
+No arguments prints help. `--help` lists all options. `--list` prints all 18 entries
+(17 liboqs parameter sets plus `SLH_DSA_PURE_SHA2_128S@boringssl`). Where CPU feature probes are
 blocked, the optimized build refuses to run (see below); add `--allow-fallback`
 for a functional check only.
 
-For an already downloaded, clean checkout at the pinned commit:
+For already downloaded, clean checkouts at the pinned commits:
 
 ```bash
-PQ_OQS_SOURCE=/absolute/path/to/liboqs bash build.sh optimized
+PQ_OQS_SOURCE=/absolute/path/to/liboqs PQ_BSSL_SOURCE=/absolute/path/to/boringssl \
+  bash build.sh optimized
 ```
 
-`PQ_BUILD_JOBS` controls native build concurrency (default 4). `CC`/`AR` select
+`PQ_BUILD_JOBS` controls native build concurrency (default 4). `CC`/`CXX`/`AR` select
 the native tools. Keep build tools and flags consistent across comparisons.
 
 ## Parameter sets and inputs
 
 | Selection | Included parameter sets | NIST categories |
 | --- | --- | --- |
-| `tier1` (default) | ML-DSA-44; Falcon-512; SLH-DSA SHA2/SHAKE × 128s/128f | 2; 1; 1 |
-| `all` | ML-DSA-44/65/87; Falcon-512/1024; SLH-DSA SHA2/SHAKE × 128/192/256 × s/f | ML-DSA: 2/3/5; Falcon: 1/5; SLH-DSA: 1/3/5 |
+| `tier1` (default) | ML-DSA-44; Falcon-512; SLH-DSA SHA2/SHAKE × 128s/128f; `SLH_DSA_PURE_SHA2_128S@boringssl` (7 entries) | 2; 1; 1 |
+| `all` | ML-DSA-44/65/87; Falcon-512/1024; SLH-DSA SHA2/SHAKE × 128/192/256 × s/f; plus the BoringSSL entry (18 entries) | ML-DSA: 2/3/5; Falcon: 1/5; SLH-DSA: 1/3/5 |
 | Comma-separated names | Exact names printed by `--list` | Per parameter set |
 
 `tier1` means the lowest available parameters per family, **not equal security**.
@@ -122,10 +126,12 @@ SLH-DSA signing is slow: `s` sets take 0.5–1 s per signature, so generating al
 outside timing, but generate it once up front with `--prepare-only`, which only
 generates and validates corpora, prints a `sha256sum`-format manifest to stdout,
 does no timing and does not create `--out`. Parameter sets are independent, so
-generate them in parallel:
+generate them in parallel. Exclude the `@boringssl` entry: it reads and writes the
+corpus file of the liboqs parameter set of the same name, so two processes would
+write one file:
 
 ```bash
-mkdir -p corpus && ./target/pq-verify-optimized --list | xargs -P 8 -n 1 \
+mkdir -p corpus && ./target/pq-verify-optimized --list | grep -v @ | xargs -P 8 -n 1 \
   ./target/pq-verify-optimized --prepare-only \
   --keys 64 --messages-per-key 16 --message-bytes 32 --corpus-dir corpus \
   --algorithms > corpus/SHA256SUMS
@@ -168,13 +174,44 @@ build. Production SLH-DSA implementations (hardware SHA-2, AVX2 multi-way hashin
 can be several times faster. A cross-family ratio from one build combines
 algorithm and implementation maturity; do not attribute it to the algorithm alone.
 
+**Getting a fair comparison.** For the algorithms themselves, compare portable
+builds: all three families are plain C, and BoringSSL is built with
+`OPENSSL_NO_ASM`. For deployment cost, use `SLH_DSA_PURE_SHA2_128S@boringssl` in
+the optimized build: it uses hardware SHA-256, shares the corpus file of liboqs's
+`SLH_DSA_PURE_SHA2_128S`, and revalidates every positive and negative sample with
+BoringSSL before timing, failing if the libraries disagree. On an Apple M-series
+development machine it verifies in about 1/6 of liboqs's time. BoringSSL's
+SHAKE-256f also uses portable Keccak and measured about 15% slower than liboqs, so
+it is not included.
+
 **The optimized build refuses silent fallback.** Restricted environments can block
 CPU feature probes (e.g. macOS `sysctl`), making runtime dispatch select generic C.
 If any ML-DSA or Falcon parameter set resolves to `mldsa-native/C` or
-`PQClean/clean`, the run fails before creating outputs. To record such a run
+`PQClean/clean`, or BoringSSL's SHA-256 resolves to `boringssl-sha256/nohw`, the
+run fails before creating outputs. To record such a run
 deliberately (e.g. a CPU without the extensions), pass `--allow-fallback`; rows
 then show the C backend and metadata records `dist_build=true`. Formal runs should
 have normal CPU-feature visibility.
+
+### Formal run script
+
+`run_formal.sh` runs the optimized build on valid inputs (10 rounds) and on two
+negative groups (5 rounds each, 10 s latency cap), then the portable build on valid
+inputs (10 rounds). All runs share the corpus pre-generated with `--prepare-only`
+under `corpus/` (or `PQ_CORPUS_DIR`), checked against `SHA256SUMS` first and copied
+as `corpus.SHA256SUMS`; quick mode uses a throwaway corpus under `OUTPUT_DIR/corpus`.
+`summarize.py` writes `summary.csv`. `host.txt` records the CPU model, features
+such as `avx2`/`sha_ni`, and the frequency governor. Extrapolating from an Apple
+M-series development machine, the whole run takes about 7 hours excluding first
+corpus generation; servers will differ.
+
+```bash
+bash build.sh optimized && bash build.sh portable
+PQ_CPU=2 nohup bash run_formal.sh results/formal-$(hostname)-$(date +%Y%m%d) > formal.log 2>&1 &
+```
+
+`PQ_CPU` applies on Linux only (`taskset`). `PQ_FORMAL_QUICK=1` substitutes
+seconds-long settings to check the pipeline, not to measure.
 
 ## Timing and reproducibility
 
@@ -251,10 +288,11 @@ python3 -m unittest test_summarize
 python3 smoke_test.py ./target/pq-verify-optimized
 ```
 
-Tests exercise all 17 algorithms with real valid/invalid signatures, wrong-key
-rotation, serialized corpus replay and corruption rejection, measurement failure
-detection, the latency budget, fallback-backend classification, traversal, and
-quantile calculations. The smoke test covers 17 parameter sets × 8 cases and checks
+Tests exercise all 18 entries with real valid/invalid signatures, wrong-key
+rotation, serialized corpus replay and corruption rejection, two-way BoringSSL/liboqs
+corpus interoperability, measurement failure detection, the latency budget,
+fallback-backend classification, traversal, and quantile calculations. The smoke
+test covers 18 entries × 8 cases and checks
 the CLI, output arithmetic, that the `--prepare-only` manifest matches the files,
 is not regenerated on a second run and is what measurement runs consume, corpus
 reuse, the latency budget and failure handling.
@@ -263,8 +301,9 @@ it detects a fallback it additionally checks that a run without the flag is refu
 
 Scope is single-thread layer A for the three PQ families. Mixed-invalid workloads,
 multi-core scaling, secp256k1 baselines, account identity binding, EVM/precompile
-costs, block throughput and gas pricing are not measured here. SLH-DSA has only
-one, scalar, implementation here (see above). `verify/s` is not chain TPS.
+costs, block throughput and gas pricing are not measured here. Only SLH-DSA-SHA2-128s
+has a second (BoringSSL) implementation; the other SLH-DSA sets use liboqs's scalar
+code (see above). `verify/s` is not chain TPS.
 
 References: [liboqs 0.16.0](https://github.com/open-quantum-safe/liboqs/tree/0.16.0),
 [FIPS 204](https://csrc.nist.gov/pubs/fips/204/final),

@@ -1,0 +1,5 @@
+2026-10-23T08:20:45Z
+Linux c7i-xlarge 6.18.54-121.166.amzn2023.x86_64 #2 SMP PREEMPT_DYNAMIC Tue Oct  6 23:11:34 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+model name	: Intel(R) Xeon(R) Platinum 8488C
+flags: avx2 avx512f bmi2 sha_ni 
+PQ_CPU=3 PQ_FORMAL_QUICK=0 corpus=/server/pq-bench/pq-verify/corpus
